@@ -17,11 +17,8 @@ class StyleApplier:
             print(f"  - Estilo registrado: {style['name']} -> {style['wordStyle']} (marker: {style['marker']})")
     
     def apply_styles(self, marked_content: List[Dict]) -> Document:
-        """Aplica estilos baseados nas marcações preservando imagens e tabelas"""
+        """Aplica estilos baseados nas marcações"""
         print(f"\nCriando novo documento com estilos...")
-        
-        # Carrega o documento original
-        original_doc = Document(self.document_path)
         
         # Cria um novo documento
         new_doc = Document()
@@ -35,104 +32,64 @@ class StyleApplier:
         stats = {
             'total': len(marked_content),
             'styled': 0,
-            'images': 0,
-            'tables': 0,
             'by_style': {}
         }
         
-        print(f"\nProcessando {len(marked_content)} elementos...")
+        print(f"\nProcessando {len(marked_content)} parágrafos...")
         
-        # Processa cada elemento
-        for i, element_data in enumerate(marked_content):
-            element_type = element_data.get('type', 'paragraph')
+        # Processa cada parágrafo
+        for i, para_data in enumerate(marked_content):
+            text = para_data.get('text', '').strip()
             
-            try:
-                if element_type == 'image':
-                    # Copia o elemento original que contém a imagem
-                    if 'original_element' in element_data:
-                        new_doc.element.body.append(element_data['original_element'])
-                        stats['images'] += 1
-                        print(f"  Imagem preservada no índice {i}")
-                        
-                        # Se tem estilo de imagem marcado
-                        if element_data.get('markers'):
-                            for marker in element_data['markers']:
-                                if marker in self.styles_map:
-                                    stats['styled'] += 1
-                                    style_name = self.styles_map[marker]['name']
-                                    stats['by_style'][style_name] = stats['by_style'].get(style_name, 0) + 1
-                                    break
-                                    
-                elif element_type == 'table':
-                    # Copia a tabela original
-                    if 'original_element' in element_data:
-                        new_doc.element.body.append(element_data['original_element'])
-                        stats['tables'] += 1
-                        print(f"  Tabela preservada no índice {i}")
-                        
-                else:  # paragraph
-                    text = element_data.get('text', '').strip()
-                    
-                    if not text:
-                        continue
-                    
-                    # Cria novo parágrafo
-                    paragraph = new_doc.add_paragraph()
-                    
-                    # Aplica estilo se marcado
-                    applied_style = False
-                    if element_data.get('markers') and len(element_data['markers']) > 0:
-                        for marker in element_data['markers']:
-                            if marker in self.styles_map:
-                                style_info = self.styles_map[marker]
-                                style_name = style_info['wordStyle']
-                                
-                                try:
-                                    paragraph.style = new_doc.styles[style_name]
-                                    stats['styled'] += 1
-                                    stats['by_style'][style_info['name']] = stats['by_style'].get(style_info['name'], 0) + 1
-                                    applied_style = True
-                                    
-                                    if i < 20:
-                                        print(f"  P{i}: Aplicado estilo '{style_name}' - {text[:50]}...")
-                                    
-                                    break
-                                    
-                                except Exception as e:
-                                    print(f"  ERRO ao aplicar estilo '{style_name}' no parágrafo {i}: {e}")
-                    
-                    if not applied_style and i < 20:
-                        print(f"  P{i}: SEM ESTILO - {text[:50]}...")
-                    
-                    # Adiciona o texto com formatação original se disponível
-                    if 'runs' in element_data and element_data['runs']:
-                        for run_data in element_data['runs']:
-                            run = paragraph.add_run(run_data['text'])
-                            if run_data.get('bold'):
-                                run.bold = True
-                            if run_data.get('italic'):
-                                run.italic = True
-                            if run_data.get('underline'):
-                                run.underline = True
-                            if run_data.get('font_size'):
-                                run.font.size = Pt(run_data['font_size'])
-                    else:
-                        paragraph.add_run(text)
-                        
-            except Exception as e:
-                print(f"  ERRO ao processar elemento {i}: {e}")
+            if not text:  # Pula parágrafos vazios
                 continue
+            
+            # Cria novo parágrafo
+            paragraph = new_doc.add_paragraph()
+            
+            # Verifica marcações
+            applied_style = False
+            if para_data.get('markers') and len(para_data['markers']) > 0:
+                for marker in para_data['markers']:
+                    if marker in self.styles_map:
+                        style_info = self.styles_map[marker]
+                        style_name = style_info['wordStyle']
+                        
+                        try:
+                            # Aplica o estilo
+                            paragraph.style = new_doc.styles[style_name]
+                            stats['styled'] += 1
+                            stats['by_style'][style_info['name']] = stats['by_style'].get(style_info['name'], 0) + 1
+                            applied_style = True
+                            
+                            if i < 20:  # Log dos primeiros 20
+                                print(f"  P{i}: Aplicado estilo '{style_name}' - {text[:50]}...")
+                            
+                            break  # Usa apenas a primeira marcação válida
+                            
+                        except Exception as e:
+                            print(f"  ERRO ao aplicar estilo '{style_name}' no parágrafo {i}: {e}")
+            
+            if not applied_style and i < 20:
+                print(f"  P{i}: SEM ESTILO - {text[:50]}...")
+            
+            # Adiciona o texto
+            paragraph.add_run(text)
         
         # Mostra estatísticas
         print(f"\n=== ESTATÍSTICAS DE APLICAÇÃO ===")
-        print(f"Total de elementos: {stats['total']}")
-        print(f"Elementos com estilo: {stats['styled']}")
-        print(f"Imagens preservadas: {stats['images']}")
-        print(f"Tabelas preservadas: {stats['tables']}")
-        print(f"Elementos sem estilo: {stats['total'] - stats['styled'] - stats['images'] - stats['tables']}")
+        print(f"Total de parágrafos: {stats['total']}")
+        print(f"Parágrafos com estilo: {stats['styled']}")
+        print(f"Parágrafos sem estilo: {stats['total'] - stats['styled']}")
         print(f"\nPor tipo de estilo:")
         for style_name, count in stats['by_style'].items():
             print(f"  - {style_name}: {count}")
+        
+        # Lista todos os estilos no documento
+        print(f"\n=== ESTILOS NO DOCUMENTO ===")
+        for style in new_doc.styles:
+            if style.name in [s['wordStyle'] for s in self.styles_map.values()]:
+                print(f"  ✓ {style.name} (quick_style: {style.quick_style}, hidden: {style.hidden})")
         
         return new_doc
     
