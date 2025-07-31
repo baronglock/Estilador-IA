@@ -109,19 +109,19 @@
 
             const [removalPrompts, setRemovalPrompts] = useState([
                 {
-                    id: 'intro',
-                    name: 'Introdução/Capa',
-                    startMarker: '[[REMOVE_INTRO_START]]',
-                    endMarker: '[[REMOVE_INTRO_END]]',
-                    prompt: 'Marque o início e fim de conteúdo introdutório, capas, prefácios antes do primeiro simulado'
-                },
-                {
-                    id: 'cartao',
-                    name: 'Cartão Resposta',
-                    startMarker: '[[REMOVE_CARTAO_START]]',
-                    endMarker: '[[REMOVE_CARTAO_END]]',
-                    prompt: 'Marque o início e fim de páginas de cartão resposta ou folhas de resposta'
-                }
+                id: 'intro',
+                name: 'Introdução/Capa',
+                startMarker: '[[REMOVE_INTRO_START]]',
+                endMarker: '[[REMOVE_INTRO_END]]',
+                prompt: 'Marque SOMENTE a tag <capa> com START e SOMENTE a tag <fechar capa> com END. Não marque nada entre elas.'
+            },
+            {
+                id: 'cartao',
+                name: 'Cartão Resposta',
+                startMarker: '[[REMOVE_CARTAO_START]]',
+                endMarker: '[[REMOVE_CARTAO_END]]',
+                prompt: 'Marque SOMENTE onde aparece literalmente "CARTÃO RESPOSTA" ou "CARTÃO-RESPOSTA" em maiúsculas com START e onde termina essa seção específica com END.'
+            }
             ]);
 
             const [editingStyle, setEditingStyle] = useState(null);

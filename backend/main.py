@@ -42,8 +42,8 @@ class WordStylerProcessor:
             
             print(f"✓ Processamento com IA concluído:")
             print(f"  - Elementos marcados: {ai_results['stats']['marked']}")
-            print(f"  - Elementos sem marcação: {ai_results['stats']['unmarked']}")
-            print(f"  - Taxa de marcação: {(ai_results['stats']['marked']/ai_results['stats']['total']*100):.1f}%")
+            print(f"  - Elementos sem marcação: {ai_results['stats'].get('unmarked', 0)}")  # CORRIGIDO: usa .get() com valor padrão
+            print(f"  - Taxa de marcação: {(ai_results['stats']['marked']/ai_results['stats']['total_paragraphs']*100):.1f}%")
             
             # Validação crítica
             if ai_results['stats']['marked'] == 0:
