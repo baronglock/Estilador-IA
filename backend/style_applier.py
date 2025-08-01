@@ -37,14 +37,71 @@ class StyleApplier:
         
         print(f"\nProcessando {len(marked_content)} parágrafos...")
         
+        # Carrega o documento original para copiar imagens
+        original_doc = Document(self.document_path)
+        
         # Processa cada parágrafo
         for i, para_data in enumerate(marked_content):
             text = para_data.get('text', '').strip()
+            element_type = para_data.get('type', 'paragraph')
+            original_index = para_data.get('original_para_index', -1)
             
-            if not text:  # Pula parágrafos vazios
+            # Para elementos de imagem, precisa copiar do documento original
+            if element_type == 'image' and original_index >= 0 and original_index < len(original_doc.paragraphs):
+                original_para = original_doc.paragraphs[original_index]
+                
+                # Cria novo parágrafo no documento
+                new_para = new_doc.add_paragraph()
+                
+                # Aplica estilo de imagem se marcado
+                if para_data.get('markers') and len(para_data['markers']) > 0:
+                    for marker in para_data['markers']:
+                        if marker in self.styles_map:
+                            style_info = self.styles_map[marker]
+                            try:
+                                new_para.style = new_doc.styles[style_info['wordStyle']]
+                                stats['styled'] += 1
+                                stats['by_style'][style_info['name']] = stats['by_style'].get(style_info['name'], 0) + 1
+                                if i < 20:
+                                    print(f"  P{i}: Aplicado estilo '{style_info['wordStyle']}' para IMAGEM")
+                            except:
+                                pass
+                            break
+                
+                # Copia runs com imagens do parágrafo original
+                for run in original_para.runs:
+                    new_run = new_para.add_run()
+                    
+                    # Copia texto se houver
+                    if run.text:
+                        new_run.text = run.text
+                    
+                    # Copia formatação
+                    if run.bold is not None:
+                        new_run.bold = run.bold
+                    if run.italic is not None:
+                        new_run.italic = run.italic
+                    if run.underline is not None:
+                        new_run.underline = run.underline
+                    if run.font.size:
+                        new_run.font.size = run.font.size
+                    if run.font.color and run.font.color.rgb:
+                        new_run.font.color.rgb = run.font.color.rgb
+                    
+                    # Copia a imagem preservando o elemento XML original
+                    if run._element.xpath('.//w:drawing') or run._element.xpath('.//w:pict'):
+                        # Clona os elementos de imagem
+                        for drawing in run._element.xpath('.//w:drawing'):
+                            new_run._element.append(drawing)
+                        for pict in run._element.xpath('.//w:pict'):
+                            new_run._element.append(pict)
+                
                 continue
             
-            # Cria novo parágrafo
+            if not text and element_type != 'image':  # Pula parágrafos vazios (exceto imagens)
+                continue
+            
+            # Cria novo parágrafo para texto normal
             paragraph = new_doc.add_paragraph()
             
             # Verifica marcações
@@ -74,7 +131,8 @@ class StyleApplier:
                 print(f"  P{i}: SEM ESTILO - {text[:50]}...")
             
             # Adiciona o texto
-            paragraph.add_run(text)
+            if text:
+                paragraph.add_run(text)
         
         # Mostra estatísticas
         print(f"\n=== ESTATÍSTICAS DE APLICAÇÃO ===")

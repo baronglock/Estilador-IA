@@ -29,7 +29,7 @@ class AIProcessor:
         print(f"Iniciando processamento de {len(paragraphs)} parágrafos...")
         
         # Processa em lotes para otimizar
-        batch_size = 100  # Aumentado para 100 - GPT-4.1 aguenta muito mais
+        batch_size = 150  # Aumentado de 100 para 150 - melhor contexto
         for i in range(0, len(paragraphs), batch_size):
             batch = paragraphs[i:i + batch_size]
             print(f"Processando batch {i//batch_size + 1} de {(len(paragraphs) + batch_size - 1)//batch_size}")
@@ -109,7 +109,7 @@ class AIProcessor:
                 self.api_url, 
                 headers=headers, 
                 json=data,
-                timeout=60  # Aumentado timeout
+                timeout=45  # Aumentado timeout
             )
             
             # Verifica se houve erro HTTP
@@ -258,6 +258,16 @@ REGRAS IMPORTANTES:
 4. Um parágrafo só pode ter UM tipo de marcação (a mais apropriada)
 5. Analise o INÍCIO de cada parágrafo para determinar seu tipo
 6. SEMPRE retorne um JSON válido e completo
+7. Para imagens, use o marcador apropriado se houver um estilo definido para imagens
+
+EXEMPLOS DE PADRÕES COMUNS (apenas para referência):
+- Questões frequentemente começam com números: "1.", "2)", "01.", "Questão 1"
+- Alternativas começam com letras: "a)", "A)", "(a)", "A."
+- Gabaritos podem conter: "Resposta:", "Gabarito:", "Alternativa correta:", letras isoladas com explicação
+- Títulos de simulado: "SIMULADO", "Simulado 1", "SIMULADO 1"
+- Elementos especiais: "[IMAGEM]", tabelas, gráficos
+
+IMPORTANTE: Use APENAS os estilos definidos abaixo. Não invente marcadores.
 
 ESTILOS A IDENTIFICAR:
 """

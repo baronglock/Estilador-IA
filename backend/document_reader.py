@@ -20,51 +20,34 @@ class DocumentReader:
             for run in para.runs:
                 if run._element.xpath('.//w:drawing') or run._element.xpath('.//w:pict'):
                     has_inline_image = True
-                    # Adiciona elemento de imagem
-                    elements.append({
-                        'index': element_index,
-                        'type': 'image',
-                        'text': '[IMAGEM]',
-                        'original_element': run._element,
-                        'style': para.style.name if para.style else 'Normal',
-                        'markers': []
-                    })
-                    element_index += 1
                     print(f"  Imagem inline detectada no parágrafo {i}")
+                    break
             
-            # Adiciona o texto do parágrafo se existir
-            if para.text.strip():
+            # Se tem imagem, marca o parágrafo mas MANTÉM o conteúdo original
+            if has_inline_image:
+                elements.append({
+                    'index': element_index,
+                    'type': 'image',
+                    'text': '',  # Texto vazio - a imagem será copiada do original
+                    'original_para_index': i,  # Índice do parágrafo original
+                    'style': para.style.name if para.style else 'Normal',
+                    'runs': self._extract_runs(para),
+                    'has_image': True,
+                    'markers': []
+                })
+                element_index += 1
+            elif para.text.strip():  # Parágrafo normal com texto
                 elements.append({
                     'index': element_index,
                     'type': 'paragraph',
                     'text': para.text,
+                    'original_para_index': i,
                     'style': para.style.name if para.style else 'Normal',
                     'runs': self._extract_runs(para),
-                    'has_image': has_inline_image
+                    'has_image': False,
+                    'markers': []
                 })
                 element_index += 1
-        
-        # Procura por imagens que possam estar fora de parágrafos
-        for rel in self.document.part.rels.values():
-            if "image" in rel.reltype:
-                # Verifica se já foi contabilizada
-                already_counted = False
-                for elem in elements:
-                    if elem.get('type') == 'image':
-                        already_counted = True
-                        break
-                
-                if not already_counted:
-                    elements.append({
-                        'index': element_index,
-                        'type': 'image',
-                        'text': '[IMAGEM]',
-                        'original_element': None,
-                        'style': 'Normal',
-                        'markers': []
-                    })
-                    element_index += 1
-                    print(f"  Imagem adicional detectada")
         
         # Processa tabelas
         for i, table in enumerate(self.document.tables):
