@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Word AI Styler</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useCallback, useEffect } = React;
+        const { Upload, FileText, Settings, Play, Download, Clock, AlertCircle, CheckCircle, Loader2, Plus, Trash2, Edit2, Save, X, Image, Table, FileJson, FolderOpen } = lucide;
+
+        // Configuração da API
+        const API_BASE_URL = 'http://localhost:5000/api';
+
+        // Templates padrão
+        const defaultTemplates = {
+            'simulado_basico': {
+                name: 'Simulado Básico',
+                styles: [
+                    {
+                        id: 'titulo_simulado',
+                        name: 'Título do Simulado',
+                        wordStyle: 'Heading 1',
+                        marker: '[[TITULO_SIMULADO]]',
+                        prompt: 'Identifique títulos que contenham "Simulado" seguido de número (ex: Simulado 1, Simulado 2)',
+                        color: '#1e40af',
+                        order: 1,
+                        elementType: 'text'
+                    },
+                    {
+                        id: 'subtitulo_estudos',
+                        name: 'Subtítulo Estudos',
+                        wordStyle: 'Heading 2',
+                        marker: '[[SUBTITULO_ESTUDOS]]',
+                        prompt: 'Identifique subtítulos que contenham "Estudos" seguido de intervalo (ex: Estudos 1 a 10)',
+                        color: '#7c3aed',
+                        order: 2,
+                        elementType: 'text'
+                    },
+                    {
+                        id: 'enunciado',
+                        name: 'Enunciado',
+                        wordStyle: 'Question',
+                        marker: '[[ENUNCIADO]]',
+                        prompt: 'Identifique enunciados de questões que começam com número seguido de ponto ou parêntese',
+                        color: '#dc2626',
+                        order: 3,
+                        elementType: 'text'
+                    },
+                    {
+                        id: 'alternativa',
+                        name: 'Alternativa',
+                        wordStyle: 'Alternative',
+                        marker: '[[ALTERNATIVA]]',
+                        prompt: 'Identifique alternativas que começam com letras (a), b), c), d), e) ou A), B), C), D), E)',
+                        color: '#ea580c',
+                        order: 4,
+                        elementType: 'text'
+                    },
+                    {
+                        id: 'gabarito',
+                        name: 'Gabarito',
+                        wordStyle: 'Answer',
+                        marker: '[[GABARITO]]',
+                        prompt: 'Identifique gabaritos: "Resposta:", "Gabarito:", textos com "D4 –", "H1 –", explicações após alternativas, orientações para professores',
+                        color: '#16a34a',
+                        order: 5,
+                        elementType: 'text'
+                    }
+                ],
+                transitions: [
+                    { from: 0, to: 1, type: 'optional', alternatives: [] },
+                    { from: 1, to: 2, type: 'optional', alternatives: [] },
+                    { from: 2, to: 3, type: 'required', alternatives: [] },
+                    { from: 3, to: 4, type: 'required', alternatives: [] },
+                    { from: 4, to: 2, type: 'optional', alternatives: [2] }
+                ]
+            }
+        };
+
+        const WordAIStyler = () => {
+            const [file, setFile] = useState(null);
+            const [apiKey, setApiKey] = useState('');
+            const [processing, setProcessing] = useState(false);
+            const [progress, setProgress] = useState({ step: '', percent: 0 });
+            const [results, setResults] = useState(null);
+            const [error, setError] = useState(null);
+            const [bookName, setBookName] = useState('');
+            const [apiStatus, setApiStatus] = useState('checking');
+            
+            // Estados para templates salvos
+            const [savedTemplates, setSavedTemplates] = useState({});
+            const [currentTemplate, setCurrentTemplate] = useState('simulado_basico');
+            const [showSaveDialog, setShowSaveDialog] = useState(false);
+            const [templateName, setTemplateName] = useState('');
+            
+            // Estados para estilos e transições
+            const [styles, setStyles] = useState(defaultTemplates.simulado_basico.styles);
+            const [transitions, setTransitions] = useState(defaultTemplates.simulado_basico.transitions);
+            const [editingTransition, setEditingTransition] = useState(null);
+
+            const [removalPrompts, setRemovalPrompts] = useState([
+                {
+                id: 'intro',
+                name: 'Introdução/Capa',
+                startMarker: '[[REMOVE_INTRO_START]]',
+                endMarker: '[[REMOVE_INTRO_END]]',
+                prompt: 'Marque SOMENTE a tag <capa> com START e SOMENTE a tag <fechar capa> com END. Não marque nada entre elas.'
+            },
+            {
+                id: 'cartao',
+                name: 'Cartão Resposta',
+                startMarker: '[[REMOVE_CARTAO_START]]',
+                endMarker: '[[REMOVE_CARTAO_END]]',
+                prompt: 'Marque SOMENTE onde aparece literalmente "CARTÃO RESPOSTA" ou "CARTÃO-RESPOSTA" em maiúsculas com START e onde termina essa seção específica com END.'
+            }
+            ]);
+
+            const [editingStyle, setEditingStyle] = useState(null);
+            const [editingRemoval, setEditingRemoval] = useState(null);
+            const [draggedItem, setDraggedItem] = useState(null);
+            const [dragOverItem, setDragOverItem] = useState(null);
+
+            // Carregar dados salvos do localStorage
+            useEffect(() => {
+                checkApiStatus();
+                
+                // Carregar configurações salvas
+                const savedApiKey = localStorage.getItem('wordStyler_apiKey');
+                if (savedApiKey) setApiKey(savedApiKey);
+                
+                const savedBookName = localStorage.getItem('wordStyler_bookName');
+                if (savedBookName) setBookName(savedBookName);
+                
+                const saved = localStorage.getItem('wordStyler_templates');
+                if (saved) {
+                    const templates = JSON.parse(saved);
+                    setSavedTemplates(templates);
+                }
+                
+                const lastTemplate = localStorage.getItem('wordStyler_lastTemplate');
+                if (lastTemplate && (defaultTemplates[lastTemplate] || (saved && JSON.parse(saved)[lastTemplate]))) {
+                    loadTemplate(lastTemplate);
+                }
+            }, []);
+
+            // Salvar mudanças automaticamente
+            useEffect(() => {
+                if (apiKey) localStorage.setItem('wordStyler_apiKey', apiKey);
+                if (bookName) localStorage.setItem('wordStyler_bookName', bookName);
+            }, [apiKey, bookName]);
+
+            const checkApiStatus = async () => {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/health`);
+                    if (response.ok) {
+                        setApiStatus('connected');
+                    } else {
+                        setApiStatus('error');
+                    }
+                } catch (err) {
+                    setApiStatus('error');
+                }
+            };
+
+            // Funções para gerenciar templates
+            const loadTemplate = (templateId) => {
+                let template;
+                if (defaultTemplates[templateId]) {
+                    template = defaultTemplates[templateId];
+                } else if (savedTemplates[templateId]) {
+                    template = savedTemplates[templateId];
+                } else {
+                    return;
+                }
+                
+                setStyles(JSON.parse(JSON.stringify(template.styles)));
+                setTransitions(JSON.parse(JSON.stringify(template.transitions || [])));
+                setCurrentTemplate(templateId);
+                localStorage.setItem('wordStyler_lastTemplate', templateId);
+            };
+
+            const saveTemplate = () => {
+                if (!templateName.trim()) return;
+                
+                const templateId = templateName.toLowerCase().replace(/\s+/g, '_');
+                const newTemplate = {
+                    name: templateName,
+                    styles: JSON.parse(JSON.stringify(styles)),
+                    transitions: JSON.parse(JSON.stringify(transitions))
+                };
+                
+                const updated = { ...savedTemplates, [templateId]: newTemplate };
+                setSavedTemplates(updated);
+                localStorage.setItem('wordStyler_templates', JSON.stringify(updated));
+                
+                setCurrentTemplate(templateId);
+                setShowSaveDialog(false);
+                setTemplateName('');
+            };
+
+            // Funções para gerenciar estilos
+            const addStyle = () => {
+                const newStyle = {
+                    id: `style_${Date.now()}`,
+                    name: 'Novo Estilo',
+                    wordStyle: 'Normal',
+                    marker: `[[NOVO_${Date.now()}]]`,
+                    prompt: 'Defina o prompt para identificar este estilo',
+                    color: '#6b7280',
+                    order: styles.length + 1,
+                    elementType: 'text',
+                    hasResidue: false
+                };
+                setStyles([...styles, newStyle]);
+                setEditingStyle(newStyle.id);
+            };
+
+            const updateStyle = (id, field, value) => {
+                setStyles(styles.map(style => 
+                    style.id === id ? { ...style, [field]: value } : style
+                ));
+            };
+
+            const deleteStyle = (id) => {
+                const updatedStyles = styles.filter(style => style.id !== id);
+                updatedStyles.forEach((style, index) => {
+                    style.order = index + 1;
+                });
+                setStyles(updatedStyles);
+                
+                // Remove transições relacionadas
+                setTransitions(transitions.filter(t => 
+                    t.from < updatedStyles.length && t.to < updatedStyles.length
+                ));
+            };
+
+            // Funções de drag and drop
+            const handleDragStart = (e, index) => {
+                setDraggedItem(index);
+                e.dataTransfer.effectAllowed = 'move';
+            };
+
+            const handleDragOver = (e, index) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                setDragOverItem(index);
+            };
+
+            const handleDragEnd = () => {
+                setDraggedItem(null);
+                setDragOverItem(null);
+            };
+
+            const handleDrop = (e, dropIndex) => {
+                e.preventDefault();
+                if (draggedItem === null) return;
+
+                const draggedStyle = styles[draggedItem];
+                const newStyles = [...styles];
+                
+                newStyles.splice(draggedItem, 1);
+                newStyles.splice(dropIndex, 0, draggedStyle);
+                
+                newStyles.forEach((style, index) => {
+                    style.order = index + 1;
+                });
+                
+                setStyles(newStyles);
+                setDraggedItem(null);
+                setDragOverItem(null);
+            };
+
+            // Funções para gerenciar transições
+            const getTransition = (fromIndex, toIndex) => {
+                return transitions.find(t => t.from === fromIndex && t.to === toIndex);
+            };
+
+            const updateTransition = (fromIndex, toIndex, type, alternatives = []) => {
+                const existing = transitions.findIndex(t => t.from === fromIndex && t.to === toIndex);
+                
+                if (type === 'none') {
+                    if (existing !== -1) {
+                        setTransitions(transitions.filter((_, i) => i !== existing));
+                    }
+                } else {
+                    const newTransition = { from: fromIndex, to: toIndex, type, alternatives };
+                    if (existing !== -1) {
+                        setTransitions(transitions.map((t, i) => i === existing ? newTransition : t));
+                    } else {
+                        setTransitions([...transitions, newTransition]);
+                    }
+                }
+            };
+
+            // Funções para gerenciar prompts de remoção
+            const addRemovalPrompt = () => {
+                const newRemoval = {
+                    id: `removal_${Date.now()}`,
+                    name: 'Nova Remoção',
+                    startMarker: `[[REMOVE_${Date.now()}_START]]`,
+                    endMarker: `[[REMOVE_${Date.now()}_END]]`,
+                    prompt: 'Defina o prompt para identificar o que remover'
+                };
+                setRemovalPrompts([...removalPrompts, newRemoval]);
+                setEditingRemoval(newRemoval.id);
+            };
+
+            const updateRemovalPrompt = (id, field, value) => {
+                setRemovalPrompts(removalPrompts.map(removal => 
+                    removal.id === id ? { ...removal, [field]: value } : removal
+                ));
+            };
+
+            const deleteRemovalPrompt = (id) => {
+                setRemovalPrompts(removalPrompts.filter(removal => removal.id !== id));
+            };
+
+            // Função para processar o arquivo
+            const processFile = async () => {
+                if (!file || !apiKey || !bookName) {
+                    setError('Por favor, preencha todos os campos obrigatórios');
+                    return;
+                }
+
+                setProcessing(true);
+                setError(null);
+                setProgress({ step: 'Preparando envio...', percent: 0 });
+
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('book_name', bookName);
+                formData.append('api_key', apiKey);
+                formData.append('styles', JSON.stringify(styles));
+                formData.append('transitions', JSON.stringify(transitions));
+                formData.append('removal_prompts', JSON.stringify(removalPrompts));
+
+                try {
+                    const progressInterval = setInterval(() => {
+                        setProgress(prev => ({
+                            step: 'Processando documento com IA...',
+                            percent: Math.min(prev.percent + 10, 90)
+                        }));
+                    }, 1000);
+
+                    const response = await fetch(`${API_BASE_URL}/process`, {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    clearInterval(progressInterval);
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || 'Erro ao processar arquivo');
+                    }
+
+                    const result = await response.json();
+
+                    if (result.success) {
+                        setProgress({ step: 'Processamento concluído!', percent: 100 });
+                        setResults({
+                            processTime: result.processing_time,
+                            totalPages: result.stats.total_pages,
+                            questionsProcessed: result.stats.questions_processed,
+                            files: result.files,
+                            outputDirectory: result.output_directory,
+                            zipFile: result.zip_file
+                        });
+                    } else {
+                        throw new Error(result.error);
+                    }
+
+                } catch (err) {
+                    setError('Erro ao processar arquivo: ' + err.message);
+                } finally {
+                    setProcessing(false);
+                }
+            };
+
+            const handleFileUpload = (e) => {
+                const uploadedFile = e.target.files[0];
+                if (uploadedFile && uploadedFile.name.endsWith('.docx')) {
+                    setFile(uploadedFile);
+                    setError(null);
+                } else {
+                    setError('Por favor, selecione um arquivo .docx válido');
+                }
+            };
+
+            const downloadFile = (filename) => {
+                window.open(`${API_BASE_URL}/download/${filename}`, '_blank');
+            };
+
+            const downloadAllFiles = () => {
+                if (results && results.zipFile) {
+                    window.open(`${API_BASE_URL}/download/${results.zipFile}`, '_blank');
+                }
+            };
+
+            // Criar ícones Lucide
+            React.useEffect(() => {
+                lucide.createIcons();
+            });
+
+            return (
+                <div className="min-h-screen bg-gray-50 p-6">
+                    <div className="max-w-7xl mx-auto">
+                        <div className="flex items-center justify-between mb-8">
+                            <h1 className="text-3xl font-bold text-gray-900">
+                                Processador de Estilos Word com IA
+                            </h1>
+                            <div className="flex items-center gap-4">
+                                <div className="flex items-center gap-2">
+                                    <select
+                                        value={currentTemplate}
+                                        onChange={(e) => loadTemplate(e.target.value)}
+                                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                                    >
+                                        <optgroup label="Templates Padrão">
+                                            {Object.entries(defaultTemplates).map(([id, template]) => (
+                                                <option key={id} value={id}>{template.name}</option>
+                                            ))}
+                                        </optgroup>
+                                        {Object.keys(savedTemplates).length > 0 && (
+                                            <optgroup label="Meus Templates">
+                                                {Object.entries(savedTemplates).map(([id, template]) => (
+                                                    <option key={id} value={id}>{template.name}</option>
+                                                ))}
+                                            </optgroup>
+                                        )}
+                                    </select>
+                                    <button
+                                        onClick={() => setShowSaveDialog(true)}
+                                        className="p-2 text-blue-600 hover:bg-blue-50 rounded"
+                                        title="Salvar como novo template"
+                                    >
+                                        <i data-lucide="save" className="w-5 h-5"></i>
+                                    </button>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <div className={`w-3 h-3 rounded-full ${
+                                        apiStatus === 'connected' ? 'bg-green-500' : 
+                                        apiStatus === 'error' ? 'bg-red-500' : 'bg-yellow-500'
+                                    }`}></div>
+                                    <span className="text-sm text-gray-600">
+                                        {apiStatus === 'connected' ? 'API Conectada' : 
+                                         apiStatus === 'error' ? 'API Desconectada' : 'Verificando...'}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Dialog para salvar template */}
+                        {showSaveDialog && (
+                            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                                <div className="bg-white rounded-lg p-6 w-96">
+                                    <h3 className="text-lg font-semibold mb-4">Salvar Template</h3>
+                                    <input
+                                        type="text"
+                                        value={templateName}
+                                        onChange={(e) => setTemplateName(e.target.value)}
+                                        placeholder="Nome do template"
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-4"
+                                        autoFocus
+                                    />
+                                    <div className="flex gap-2 justify-end">
+                                        <button
+                                            onClick={() => {
+                                                setShowSaveDialog(false);
+                                                setTemplateName('');
+                                            }}
+                                            className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+                                        >
+                                            Cancelar
+                                        </button>
+                                        <button
+                                            onClick={saveTemplate}
+                                            disabled={!templateName.trim()}
+                                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
+                                        >
+                                            Salvar
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            {/* Coluna de Configuração */}
+                            <div className="lg:col-span-2 space-y-6">
+                                {/* Upload e Configurações Básicas */}
+                                <div className="bg-white rounded-lg shadow p-6">
+                                    <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+                                        <i data-lucide="settings" className="w-5 h-5"></i>
+                                        Configurações
+                                    </h2>
+
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Arquivo Word (.docx)
+                                            </label>
+                                            <div className="relative">
+                                                <input
+                                                    type="file"
+                                                    accept=".docx"
+                                                    onChange={handleFileUpload}
+                                                    className="hidden"
+                                                    id="file-upload"
+                                                />
+                                                <label
+                                                    htmlFor="file-upload"
+                                                    className="flex items-center justify-center gap-2 p-4 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-gray-400 transition-colors"
+                                                >
+                                                    <i data-lucide="upload" className="w-5 h-5 text-gray-400"></i>
+                                                    <span className="text-gray-600">
+                                                        {file ? file.name : 'Clique para selecionar arquivo'}
+                                                    </span>
+                                                </label>
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                Nome do Livro
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={bookName}
+                                                onChange={(e) => setBookName(e.target.value)}
+                                                placeholder="Ex: Simulado_Matematica_2024"
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                                API Key (GPT-4.1)
+                                            </label>
+                                            <input
+                                                type="password"
+                                                value={apiKey}
+                                                onChange={(e) => setApiKey(e.target.value)}
+                                                placeholder="sk-..."
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Gerenciador de Estilos */}
+                                <div className="bg-white rounded-lg shadow p-6">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <h2 className="text-xl font-semibold flex items-center gap-2">
+                                            <i data-lucide="file-text" className="w-5 h-5"></i>
+                                            Estilos e Sequência
+                                        </h2>
+                                        <button
+                                            onClick={addStyle}
+                                            className="flex items-center gap-1 px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                                        >
+                                            <i data-lucide="plus" className="w-4 h-4"></i>
+                                            Adicionar
+                                        </button>
+                                    </div>
+
+                                    <div className="space-y-3">
+                                        {styles.map((style, index) => (
+                                            <React.Fragment key={style.id}>
+                                                <div
+                                                    draggable={editingStyle !== style.id}
+                                                    onDragStart={(e) => handleDragStart(e, index)}
+                                                    onDragOver={(e) => handleDragOver(e, index)}
+                                                    onDragEnd={handleDragEnd}
+                                                    onDrop={(e) => handleDrop(e, index)}
+                                                    className={`border border-gray-200 rounded-lg p-4 space-y-3 transition-all cursor-move
+                                                        ${draggedItem === index ? 'opacity-50' : ''}
+                                                        ${dragOverItem === index ? 'border-blue-500 bg-blue-50' : ''}`}
+                                                    style={{ borderLeftWidth: '4px', borderLeftColor: style.color }}
+                                                >
+                                                    {editingStyle === style.id ? (
+                                                        <div className="space-y-3">
+                                                            <div className="grid grid-cols-2 gap-2">
+                                                                <input
+                                                                    type="text"
+                                                                    value={style.name}
+                                                                    onChange={(e) => updateStyle(style.id, 'name', e.target.value)}
+                                                                    className="px-2 py-1 border border-gray-300 rounded text-sm"
+                                                                    placeholder="Nome do estilo"
+                                                                />
+                                                                <input
+                                                                    type="text"
+                                                                    value={style.wordStyle}
+                                                                    onChange={(e) => updateStyle(style.id, 'wordStyle', e.target.value)}
+                                                                    className="px-2 py-1 border border-gray-300 rounded text-sm"
+                                                                    placeholder="Estilo no Word"
+                                                                />
+                                                            </div>
+                                                            
+                                                            <div className="flex items-center gap-2">
+                                                                <select
+                                                                    value={style.elementType}
+                                                                    onChange={(e) => updateStyle(style.id, 'elementType', e.target.value)}
+                                                                    className="px-2 py-1 border border-gray-300 rounded text-sm"
+                                                                >
+                                                                    <option value="text">Texto</option>
+                                                                    <option value="image">Imagem</option>
+                                                                    <option value="table">Tabela</option>
+                                                                </select>
+                                                                
+                                                                {style.elementType === 'image' && (
+                                                                    <label className="flex items-center gap-1 text-sm">
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={style.hasResidue || false}
+                                                                            onChange={(e) => updateStyle(style.id, 'hasResidue', e.target.checked)}
+                                                                        />
+                                                                        Tem resíduo de texto
+                                                                    </label>
+                                                                )}
+                                                            </div>
+                                                            
+                                                            {style.elementType === 'text' && (
+                                                                <textarea
+                                                                    value={style.prompt}
+                                                                    onChange={(e) => updateStyle(style.id, 'prompt', e.target.value)}
+                                                                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm h-20"
+                                                                    placeholder="Prompt para identificação"
+                                                                />
+                                                            )}
+
+                                                            {style.elementType === 'text' && (
+                                                                <label className="flex items-center gap-2 text-sm mt-2">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={style.allowInlineImages || false}
+                                                                        onChange={(e) => updateStyle(style.id, 'allowInlineImages', e.target.checked)}
+                                                                        className="rounded"
+                                                                    />
+                                                                    <span>Pode conter imagens inline (mantém estilo do texto)</span>
+                                                                </label>
+                                                            )}
+                                                            
+                                                            <input
+                                                                type="text"
+                                                                value={style.marker}
+                                                                onChange={(e) => updateStyle(style.id, 'marker', e.target.value)}
+                                                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                                                placeholder="Marcador"
+                                                            />
+                                                            
+                                                            <div className="flex gap-2">
+                                                                <button
+                                                                    onClick={() => setEditingStyle(null)}
+                                                                    className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700"
+                                                                >
+                                                                    <i data-lucide="save" className="w-4 h-4"></i>
+                                                                </button>
+                                                                <input
+                                                                    type="color"
+                                                                    value={style.color}
+                                                                    onChange={(e) => updateStyle(style.id, 'color', e.target.value)}
+                                                                    className="w-8 h-8 rounded cursor-pointer"
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <>
+                                                            <div className="flex items-start justify-between">
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="text-xs bg-gray-200 px-2 py-1 rounded">{index + 1}º</span>
+                                                                    <div className="flex-1">
+                                                                        <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                                                                            {style.name}
+                                                                            {style.elementType === 'image' && <i data-lucide="image" className="w-4 h-4 text-gray-500"></i>}
+                                                                            {style.elementType === 'table' && <i data-lucide="table" className="w-4 h-4 text-gray-500"></i>}
+                                                                            {style.allowInlineImages && (
+                                                                                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+                                                                                    Permite imagens
+                                                                                </span>
+                                                                            )}
+                                                                        </h3>
+                                                                        <p className="text-sm text-gray-500">Word: {style.wordStyle}</p>
+                                                                        <p className="text-xs text-gray-400 mt-1">Marcador: {style.marker}</p>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex gap-1">
+                                                                    <button
+                                                                        onClick={() => setEditingStyle(style.id)}
+                                                                        className="p-1 text-gray-500 hover:text-blue-600"
+                                                                    >
+                                                                        <i data-lucide="edit-2" className="w-4 h-4"></i>
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => deleteStyle(style.id)}
+                                                                        className="p-1 text-gray-500 hover:text-red-600"
+                                                                    >
+                                                                        <i data-lucide="trash-2" className="w-4 h-4"></i>
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                            {style.elementType === 'text' && (
+                                                                <p className="text-sm text-gray-600">{style.prompt}</p>
+                                                            )}
+                                                        </>
+                                                    )}
+                                                </div>
+                                                
+                                                {/* Transição entre estilos */}
+                                                {(index < styles.length - 1 || index === styles.length - 1) && (
+                                                    <div className="flex items-center justify-center py-2">
+                                                        {editingTransition === `${index}-${index < styles.length - 1 ? index+1 : 0}` ? (
+                                                            <div className="flex flex-col items-center gap-2 bg-gray-100 rounded-lg p-3 w-full">
+                                                                <select
+                                                                    value={getTransition(index, index < styles.length - 1 ? index + 1 : 0)?.type || 'none'}
+                                                                    onChange={(e) => {
+                                                                        updateTransition(index, index < styles.length - 1 ? index + 1 : 0, e.target.value);
+                                                                        if (e.target.value !== 'optional') {
+                                                                            setEditingTransition(null);
+                                                                        }
+                                                                    }}
+                                                                    className="px-2 py-1 border border-gray-300 rounded text-sm"
+                                                                >
+                                                                    <option value="none">Sem relação</option>
+                                                                    <option value="required">Obrigatório</option>
+                                                                    <option value="optional">Variável</option>
+                                                                </select>
+                                                                
+                                                                {getTransition(index, index < styles.length - 1 ? index + 1 : 0)?.type === 'optional' && (
+                                                                    <div className="w-full">
+                                                                        <p className="text-xs text-gray-600 mb-2">Pode ir para:</p>
+                                                                        <div className="grid grid-cols-2 gap-1">
+                                                                            {styles.map((s, i) => {
+                                                                                const nextIndex = index < styles.length - 1 ? index + 1 : 0;
+                                                                                if (i === index) return null;
+                                                                                
+                                                                                const currentAlternatives = getTransition(index, nextIndex)?.alternatives || [];
+                                                                                const isChecked = i === nextIndex || currentAlternatives.includes(i);
+                                                                                
+                                                                                return (
+                                                                                    <label key={i} className="flex items-center gap-1 text-xs p-1 hover:bg-gray-200 rounded">
+                                                                                        <input
+                                                                                            type="checkbox"
+                                                                                            checked={isChecked}
+                                                                                            disabled={i === nextIndex}
+                                                                                            onChange={(e) => {
+                                                                                                let newAlternatives = [...currentAlternatives];
+                                                                                                if (e.target.checked && !newAlternatives.includes(i)) {
+                                                                                                    newAlternatives.push(i);
+                                                                                                } else if (!e.target.checked) {
+                                                                                                    newAlternatives = newAlternatives.filter(alt => alt !== i);
+                                                                                                }
+                                                                                                updateTransition(index, nextIndex, 'optional', newAlternatives);
+                                                                                            }}
+                                                                                        />
+                                                                                        <span className={i === nextIndex ? 'font-semibold' : ''}>{s.name}</span>
+                                                                                    </label>
+                                                                                );
+                                                                            })}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                                
+                                                                <button
+                                                                    onClick={() => setEditingTransition(null)}
+                                                                    className="p-1 text-green-600 hover:text-green-700"
+                                                                >
+                                                                    <i data-lucide="check" className="w-4 h-4"></i>
+                                                                </button>
+                                                            </div>
+                                                        ) : (
+                                                            <button
+                                                                onClick={() => setEditingTransition(`${index}-${index < styles.length - 1 ? index+1 : 0}`)}
+                                                                className={`px-3 py-1 rounded-full text-xs transition-colors ${
+                                                                    getTransition(index, index < styles.length - 1 ? index + 1 : 0)?.type === 'required' 
+                                                                        ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                                                                        : getTransition(index, index < styles.length - 1 ? index + 1 : 0)?.type === 'optional'
+                                                                        ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
+                                                                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                                                }`}
+                                                            >
+                                                                {index === styles.length - 1 ? '↻ ' : '↓ '}
+                                                                {getTransition(index, index < styles.length - 1 ? index + 1 : 0)?.type === 'required' 
+                                                                    ? 'Obrigatório'
+                                                                    : getTransition(index, index < styles.length - 1 ? index + 1 : 0)?.type === 'optional'
+                                                                    ? 'Variável'
+                                                                    : 'Configurar'
+                                                                }
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </React.Fragment>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Gerenciador de Remoções */}
+                                <div className="bg-white rounded-lg shadow p-6">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <h2 className="text-xl font-semibold flex items-center gap-2">
+                                            <i data-lucide="trash-2" className="w-5 h-5"></i>
+                                            Conteúdo para Remover
+                                        </h2>
+                                        <button
+                                            onClick={addRemovalPrompt}
+                                            className="flex items-center gap-1 px-3 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
+                                        >
+                                            <i data-lucide="plus" className="w-4 h-4"></i>
+                                            Adicionar
+                                        </button>
+                                    </div>
+
+                                    <div className="space-y-3">
+                                        {removalPrompts.map((removal) => (
+                                            <div key={removal.id} className="border border-gray-200 rounded-lg p-4 space-y-3">
+                                                {editingRemoval === removal.id ? (
+                                                    <div className="space-y-3">
+                                                        <input
+                                                            type="text"
+                                                            value={removal.name}
+                                                            onChange={(e) => updateRemovalPrompt(removal.id, 'name', e.target.value)}
+                                                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                                            placeholder="Nome da remoção"
+                                                        />
+                                                        <textarea
+                                                            value={removal.prompt}
+                                                            onChange={(e) => updateRemovalPrompt(removal.id, 'prompt', e.target.value)}
+                                                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm h-20"
+                                                            placeholder="Prompt para identificação"
+                                                        />
+                                                        <button
+                                                            onClick={() => setEditingRemoval(null)}
+                                                            className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700"
+                                                        >
+                                                            <i data-lucide="save" className="w-4 h-4"></i>
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <>
+                                                        <div className="flex items-start justify-between">
+                                                            <div className="flex-1">
+                                                                <h3 className="font-semibold text-gray-900">{removal.name}</h3>
+                                                                <p className="text-xs text-gray-400 mt-1">
+                                                                    {removal.startMarker} ... {removal.endMarker}
+                                                                </p>
+                                                            </div>
+                                                            <div className="flex gap-1">
+                                                                <button
+                                                                    onClick={() => setEditingRemoval(removal.id)}
+                                                                    className="p-1 text-gray-500 hover:text-blue-600"
+                                                                >
+                                                                    <i data-lucide="edit-2" className="w-4 h-4"></i>
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => deleteRemovalPrompt(removal.id)}
+                                                                    className="p-1 text-gray-500 hover:text-red-600"
+                                                                >
+                                                                    <i data-lucide="trash-2" className="w-4 h-4"></i>
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                        <p className="text-sm text-gray-600">{removal.prompt}</p>
+                                                    </>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Coluna de Status e Resultados */}
+                            <div className="space-y-6">
+                                {/* Botão de Processar */}
+                                <div className="bg-white rounded-lg shadow p-6">
+                                    <button
+                                        onClick={processFile}
+                                        disabled={processing || !file || !apiKey || !bookName || apiStatus !== 'connected'}
+                                        className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                                    >
+                                        {processing ? (
+                                            <>
+                                                <i data-lucide="loader-2" className="w-5 h-5 animate-spin"></i>
+                                                Processando...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <i data-lucide="play" className="w-5 h-5"></i>
+                                                Processar Documento
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+
+                                {/* Status de Processamento */}
+                                {processing && (
+                                    <div className="bg-white rounded-lg shadow p-6">
+                                        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                                            <i data-lucide="clock" className="w-5 h-5"></i>
+                                            Status
+                                        </h3>
+                                        <div className="space-y-3">
+                                            <p className="text-sm text-gray-600">{progress.step}</p>
+                                            <div className="w-full bg-gray-200 rounded-full h-2">
+                                                <div
+                                                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                                                    style={{ width: `${progress.percent}%` }}
+                                                />
+                                            </div>
+                                            <p className="text-xs text-gray-500">{progress.percent}% concluído</p>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Mensagens de Erro */}
+                                {error && (
+                                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                                        <div className="flex items-start gap-2">
+                                            <i data-lucide="alert-circle" className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5"></i>
+                                            <p className="text-sm text-red-700">{error}</p>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Resultados */}
+                                {results && (
+                                    <div className="bg-white rounded-lg shadow p-6">
+                                        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                                            <i data-lucide="check-circle" className="w-5 h-5 text-green-600"></i>
+                                            Processamento Concluído
+                                        </h3>
+                                        
+                                        <div className="space-y-4">
+                                            <div className="grid grid-cols-2 gap-3 text-sm">
+                                                <div>
+                                                    <p className="text-gray-500">Tempo total</p>
+                                                    <p className="font-semibold">{results.processTime}</p>
+                                                </div>
+                                                <div>
+                                                    <p className="text-gray-500">Páginas</p>
+                                                    <p className="font-semibold">{results.totalPages}</p>
+                                                </div>
+                                                <div>
+                                                    <p className="text-gray-500">Questões</p>
+                                                    <p className="font-semibold">{results.questionsProcessed}</p>
+                                                </div>
+                                                <div>
+                                                    <p className="text-gray-500">Arquivos</p>
+                                                    <p className="font-semibold">{results.files.length}</p>
+                                                </div>
+                                            </div>
+
+                                            <div className="border-t pt-4">
+                                                <h4 className="font-medium text-gray-900 mb-3">Arquivos Gerados</h4>
+                                                <div className="space-y-2">
+                                                    {results.files.map((file, index) => (
+                                                        <div
+                                                            key={index}
+                                                            className="flex items-center justify-between p-2 bg-gray-50 rounded-lg"
+                                                        >
+                                                            <div className="flex items-center gap-2">
+                                                                <i data-lucide="file-text" className="w-4 h-4 text-gray-500"></i>
+                                                                <span className="text-sm text-gray-700">{file.name}</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-xs text-gray-500">{file.size}</span>
+                                                                <button 
+                                                                    onClick={() => downloadFile(file.path)}
+                                                                    className="p-1 text-blue-600 hover:text-blue-700"
+                                                                >
+                                                                    <i data-lucide="download" className="w-4 h-4"></i>
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            <button 
+                                                onClick={downloadAllFiles}
+                                                className="w-full mt-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+                                            >
+                                                <i data-lucide="download" className="w-5 h-5"></i>
+                                                Baixar Todos os Arquivos
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Renderizar aplicação
+        ReactDOM.render(<WordAIStyler />, document.getElementById('root'));
+    </script>
+</body>
+</html>
