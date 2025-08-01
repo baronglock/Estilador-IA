@@ -61,34 +61,21 @@ class WordStylerProcessor:
                 styled_doc, marked_content, removal_prompts
             )
             
-            # 5. Divide em simulados
-            print("\n[5/7] Dividindo em simulados...")
-            splitter = DocumentSplitter()
-            simulados = splitter.split_simulados(clean_doc)
+            # 5. Divide em simulados (PULAR - não queremos mais dividir)
+            print("\n[5/7] Pulando divisão em simulados...")
+            simulados = []  # Lista vazia - não divide mais
             
-            print(f"✓ Divisão concluída:")
-            print(f"  - Simulados encontrados: {len(simulados)}")
-            for sim in simulados:
-                print(f"    • Simulado {sim['number']}: {sim['paragraph_count']} parágrafos")
+            print("✓ Divisão desabilitada - documento único será gerado")
             
             # 6. Cria documentos finais
-            print("\n[6/7] Criando documentos finais...")
+            print("\n[6/7] Criando documento final...")
             documents = {}
             
-            # Documento completo estilizado
+            # Apenas o documento completo estilizado
             documents['completo'] = clean_doc
-            print("  ✓ Documento completo criado")
+            print("  ✓ Documento único criado")
             
-            # Documentos gerais (todas questões e todos gabaritos)
-            general_docs = splitter.create_complete_documents(clean_doc, marked_content)
-            documents.update(general_docs)
-            print("  ✓ Documentos gerais criados (questões e gabaritos)")
-            
-            # Documentos individuais por simulado
-            if simulados:
-                split_docs = splitter.create_split_documents(simulados, clean_doc, marked_content, styles)
-                documents.update(split_docs)
-                print(f"  ✓ {len(split_docs)} documentos individuais criados")
+            # NÃO cria mais documentos separados
             
             # 7. Salva arquivos
             print("\n[7/7] Salvando arquivos...")
@@ -122,7 +109,6 @@ class WordStylerProcessor:
                     'total_pages': doc_info['total_paragraphs'],
                     'questions_processed': ai_results['stats']['marked'],
                     'api_calls': ai_results['stats']['api_calls'],
-                    'simulados_found': len(simulados),
                     'removal_count': len(removal_prompts),
                     'styles_applied': len(styles)
                 },
@@ -131,13 +117,7 @@ class WordStylerProcessor:
                 'zip_file': os.path.basename(zip_path),
                 'details': {
                     'document_info': doc_info,
-                    'ai_stats': ai_results['stats'],
-                    'simulados': [
-                        {
-                            'number': s['number'],
-                            'paragraphs': s['paragraph_count']
-                        } for s in simulados
-                    ]
+                    'ai_stats': ai_results['stats']
                 }
             }
             

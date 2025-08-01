@@ -23,28 +23,16 @@ class DocumentReader:
                     print(f"  Imagem inline detectada no parágrafo {i}")
                     break
             
-            # Se tem imagem, marca o parágrafo mas MANTÉM o conteúdo original
-            if has_inline_image:
+            # Sempre adiciona o parágrafo, marcando se tem imagem
+            if para.text.strip() or has_inline_image:
                 elements.append({
                     'index': element_index,
-                    'type': 'image',
-                    'text': '',  # Texto vazio - a imagem será copiada do original
-                    'original_para_index': i,  # Índice do parágrafo original
-                    'style': para.style.name if para.style else 'Normal',
-                    'runs': self._extract_runs(para),
-                    'has_image': True,
-                    'markers': []
-                })
-                element_index += 1
-            elif para.text.strip():  # Parágrafo normal com texto
-                elements.append({
-                    'index': element_index,
-                    'type': 'paragraph',
+                    'type': 'paragraph',  # Sempre 'paragraph' agora
                     'text': para.text,
                     'original_para_index': i,
                     'style': para.style.name if para.style else 'Normal',
                     'runs': self._extract_runs(para),
-                    'has_image': False,
+                    'has_image': has_inline_image,  # Flag que indica se tem imagem
                     'markers': []
                 })
                 element_index += 1

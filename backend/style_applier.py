@@ -45,34 +45,48 @@ class StyleApplier:
             text = para_data.get('text', '').strip()
             element_type = para_data.get('type', 'paragraph')
             original_index = para_data.get('original_para_index', -1)
+            has_image = para_data.get('has_image', False)
             
-            # Para elementos de imagem, precisa copiar do documento original
-            if element_type == 'image' and original_index >= 0 and original_index < len(original_doc.paragraphs):
+            # Cria novo parágrafo
+            if original_index >= 0 and original_index < len(original_doc.paragraphs):
                 original_para = original_doc.paragraphs[original_index]
-                
-                # Cria novo parágrafo no documento
                 new_para = new_doc.add_paragraph()
                 
-                # Aplica estilo de imagem se marcado
+                # Verifica marcações e aplica estilo
+                applied_style = False
+                style_allows_images = False
+                
                 if para_data.get('markers') and len(para_data['markers']) > 0:
                     for marker in para_data['markers']:
                         if marker in self.styles_map:
                             style_info = self.styles_map[marker]
+                            # Verifica se o estilo permite imagens inline
+                            style_allows_images = style_info.get('allowInlineImages', False)
+                            
                             try:
                                 new_para.style = new_doc.styles[style_info['wordStyle']]
                                 stats['styled'] += 1
                                 stats['by_style'][style_info['name']] = stats['by_style'].get(style_info['name'], 0) + 1
+                                applied_style = True
+                                
                                 if i < 20:
-                                    print(f"  P{i}: Aplicado estilo '{style_info['wordStyle']}' para IMAGEM")
-                            except:
-                                pass
-                            break
+                                    if has_image:
+                                        print(f"  P{i}: Aplicado estilo '{style_info['wordStyle']}' - {text[:30]}... [com imagem]")
+                                    else:
+                                        print(f"  P{i}: Aplicado estilo '{style_info['wordStyle']}' - {text[:50]}...")
+                                
+                                break
+                            except Exception as e:
+                                print(f"  ERRO ao aplicar estilo '{style_info['wordStyle']}' no parágrafo {i}: {e}")
                 
-                # Copia runs com imagens do parágrafo original
+                if not applied_style and i < 20:
+                    print(f"  P{i}: SEM ESTILO - {text[:50]}...")
+                
+                # Copia o conteúdo do parágrafo original (com imagens se houver)
                 for run in original_para.runs:
                     new_run = new_para.add_run()
                     
-                    # Copia texto se houver
+                    # Copia texto
                     if run.text:
                         new_run.text = run.text
                     
@@ -88,51 +102,22 @@ class StyleApplier:
                     if run.font.color and run.font.color.rgb:
                         new_run.font.color.rgb = run.font.color.rgb
                     
-                    # Copia a imagem preservando o elemento XML original
+                    # Copia imagens se existirem
                     if run._element.xpath('.//w:drawing') or run._element.xpath('.//w:pict'):
-                        # Clona os elementos de imagem
-                        for drawing in run._element.xpath('.//w:drawing'):
-                            new_run._element.append(drawing)
-                        for pict in run._element.xpath('.//w:pict'):
-                            new_run._element.append(pict)
-                
-                continue
-            
-            if not text and element_type != 'image':  # Pula parágrafos vazios (exceto imagens)
-                continue
-            
-            # Cria novo parágrafo para texto normal
-            paragraph = new_doc.add_paragraph()
-            
-            # Verifica marcações
-            applied_style = False
-            if para_data.get('markers') and len(para_data['markers']) > 0:
-                for marker in para_data['markers']:
-                    if marker in self.styles_map:
-                        style_info = self.styles_map[marker]
-                        style_name = style_info['wordStyle']
+                        # Importa os namespaces necessários
+                        from copy import deepcopy
                         
-                        try:
-                            # Aplica o estilo
-                            paragraph.style = new_doc.styles[style_name]
-                            stats['styled'] += 1
-                            stats['by_style'][style_info['name']] = stats['by_style'].get(style_info['name'], 0) + 1
-                            applied_style = True
-                            
-                            if i < 20:  # Log dos primeiros 20
-                                print(f"  P{i}: Aplicado estilo '{style_name}' - {text[:50]}...")
-                            
-                            break  # Usa apenas a primeira marcação válida
-                            
-                        except Exception as e:
-                            print(f"  ERRO ao aplicar estilo '{style_name}' no parágrafo {i}: {e}")
-            
-            if not applied_style and i < 20:
-                print(f"  P{i}: SEM ESTILO - {text[:50]}...")
-            
-            # Adiciona o texto
-            if text:
-                paragraph.add_run(text)
+                        # Copia elementos de drawing
+                        for drawing in run._element.xpath('.//w:drawing'):
+                            new_run._element.append(deepcopy(drawing))
+                        
+                        # Copia elementos de pict (imagens antigas)
+                        for pict in run._element.xpath('.//w:pict'):
+                            new_run._element.append(deepcopy(pict))
+                
+                # Copia também propriedades do parágrafo
+                if original_para.alignment:
+                    new_para.alignment = original_para.alignment
         
         # Mostra estatísticas
         print(f"\n=== ESTATÍSTICAS DE APLICAÇÃO ===")

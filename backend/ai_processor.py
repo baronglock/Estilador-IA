@@ -13,8 +13,12 @@ class AIProcessor:
         
     def process_document(self, paragraphs: List[Dict], styles: List[Dict], removal_prompts: List[Dict]) -> Dict:
         """Processa documento com IA para identificar estilos"""
-        # Salva estilos para validação posterior
+        # Salva estilos e marcadores de remoção para validação posterior
         self.styles = styles
+        self.removal_markers = []
+        for removal in removal_prompts:
+            self.removal_markers.append(removal['startMarker'])
+            self.removal_markers.append(removal['endMarker'])
         
         marked_content = []
         processing_stats = {
@@ -278,6 +282,8 @@ ESTILOS A IDENTIFICAR:
         
         if removal_prompts:
             prompt += "\nCONTEÚDO PARA MARCAR REMOÇÃO:\n"
+            prompt += "IMPORTANTE: Só marque para remoção conteúdo que NÃO tem nenhum estilo aplicado!\n"
+            prompt += "Se um parágrafo já tem um marcador de estilo, NÃO adicione marcadores de remoção.\n\n"
             
             for removal in removal_prompts:
                 prompt += f"\n- {removal['name']}: {removal['prompt']}"
@@ -314,8 +320,10 @@ IMPORTANTE:
     
     def _merge_results(self, batch: List[Dict], ai_results: Dict) -> List[Dict]:
         """Mescla os resultados da IA com o batch original"""
-        # Lista de marcadores válidos
-        valid_markers = [style['marker'] for style in self.styles] if hasattr(self, 'styles') else []
+        # Lista de marcadores válidos (estilos + remoções)
+        valid_style_markers = [style['marker'] for style in self.styles] if hasattr(self, 'styles') else []
+        valid_removal_markers = self.removal_markers if hasattr(self, 'removal_markers') else []
+        all_valid_markers = valid_style_markers + valid_removal_markers
         
         # Cria um mapa de resultados
         results_map = {}
@@ -323,11 +331,11 @@ IMPORTANTE:
             if isinstance(p, dict) and 'index' in p and 'markers' in p:
                 # Filtra apenas marcadores válidos
                 markers = p.get('markers', [])
-                if valid_markers:
-                    # Valida e corrige marcadores
+                if all_valid_markers:
+                    # Valida e separa marcadores
                     validated_markers = []
                     for marker in markers:
-                        if marker in valid_markers:
+                        if marker in all_valid_markers:
                             validated_markers.append(marker)
                         else:
                             print(f"    AVISO: Marcador inválido ignorado: {marker}")

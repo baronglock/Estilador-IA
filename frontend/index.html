@@ -637,6 +637,18 @@
                                                                     placeholder="Prompt para identificação"
                                                                 />
                                                             )}
+
+                                                            {style.elementType === 'text' && (
+                                                                <label className="flex items-center gap-2 text-sm mt-2">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={style.allowInlineImages || false}
+                                                                        onChange={(e) => updateStyle(style.id, 'allowInlineImages', e.target.checked)}
+                                                                        className="rounded"
+                                                                    />
+                                                                    <span>Pode conter imagens inline (mantém estilo do texto)</span>
+                                                                </label>
+                                                            )}
                                                             
                                                             <input
                                                                 type="text"
@@ -671,6 +683,11 @@
                                                                             {style.name}
                                                                             {style.elementType === 'image' && <i data-lucide="image" className="w-4 h-4 text-gray-500"></i>}
                                                                             {style.elementType === 'table' && <i data-lucide="table" className="w-4 h-4 text-gray-500"></i>}
+                                                                            {style.allowInlineImages && (
+                                                                                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+                                                                                    Permite imagens
+                                                                                </span>
+                                                                            )}
                                                                         </h3>
                                                                         <p className="text-sm text-gray-500">Word: {style.wordStyle}</p>
                                                                         <p className="text-xs text-gray-400 mt-1">Marcador: {style.marker}</p>
