@@ -32,8 +32,12 @@ class AIProcessor:
         
         print(f"Iniciando processamento de {len(paragraphs)} parágrafos...")
         
-        # Processa em lotes para otimizar
-        batch_size = 150  # Aumentado de 100 para 150 - melhor contexto
+        # Processa em lotes maiores - GPT-4.1 aguenta muito mais
+        batch_size = 150  # Voltando para 150 como solicitado
+        
+        # Segunda passada para parágrafos não marcados
+        unmarked_paragraphs = []
+        
         for i in range(0, len(paragraphs), batch_size):
             batch = paragraphs[i:i + batch_size]
             print(f"Processando batch {i//batch_size + 1} de {(len(paragraphs) + batch_size - 1)//batch_size}")
@@ -77,10 +81,46 @@ class AIProcessor:
         processing_stats['marked'] = sum(1 for p in marked_content if p.get('markers') and len(p['markers']) > 0)
         processing_stats['unmarked'] = processing_stats['total_paragraphs'] - processing_stats['marked']
         
+        # Coleta parágrafos não marcados para segunda tentativa
+        unmarked_paragraphs = [p for p in marked_content if not p.get('markers') or len(p['markers']) == 0]
+        
+        if unmarked_paragraphs and len(unmarked_paragraphs) > 10:
+            print(f"\n⚠️ {len(unmarked_paragraphs)} parágrafos sem marcação. Fazendo segunda passada...")
+            
+            # Segunda tentativa focada nos não marcados
+            for i in range(0, len(unmarked_paragraphs), 20):
+                batch = unmarked_paragraphs[i:i + 20]
+                print(f"  Reprocessando batch {i//20 + 1} de {(len(unmarked_paragraphs) + 19)//20}")
+                
+                # Passa o conteúdo completo para análise contextual
+                batch_results = self._process_batch_focused(batch, styles, removal_prompts, marked_content)
+                
+                # Atualiza os resultados originais
+                for updated_para in batch_results:
+                    if updated_para.get('markers'):
+                        # Encontra e atualiza no marked_content original
+                        for j, original in enumerate(marked_content):
+                            if original['index'] == updated_para['index']:
+                                marked_content[j] = updated_para
+                                break
+                
+                time.sleep(0.5)
+            
+            # Recalcula estatísticas
+            processing_stats['marked'] = sum(1 for p in marked_content if p.get('markers') and len(p['markers']) > 0)
+            processing_stats['unmarked'] = processing_stats['total_paragraphs'] - processing_stats['marked']
+        
         print(f"\nProcessamento concluído:")
         print(f"  - {processing_stats['marked']} parágrafos marcados")
         print(f"  - {processing_stats['unmarked']} parágrafos sem marcação")
-        print(f"  - {processing_stats['failed_batches']} batches falharam")
+        if processing_stats['failed_batches'] > 0:
+            print(f"  - {processing_stats['failed_batches']} batches falharam")
+        
+        # Log de exemplo dos não marcados para debug
+        if unmarked_paragraphs and len(unmarked_paragraphs) <= 10:
+            print("\nExemplos de parágrafos NÃO marcados:")
+            for p in unmarked_paragraphs[:5]:
+                print(f"  - P{p['index']}: {p['text'][:60]}...")
         
         return {
             'marked_content': marked_content,
@@ -250,28 +290,148 @@ class AIProcessor:
         
         return None
     
+    def _process_batch_focused(self, batch: List[Dict], styles: List[Dict], removal_prompts: List[Dict], full_content: List[Dict]) -> List[Dict]:
+        """Processa batch com foco especial em parágrafos não marcados, usando contexto"""
+        system_prompt = """Você DEVE marcar TODOS os parágrafos abaixo. Analise cuidadosamente cada um.
+
+IMPORTANTE: Use o CONTEXTO dos parágrafos anteriores e posteriores para decidir.
+Por exemplo:
+- Se antes tem uma questão e depois tem outra questão, o meio provavelmente são alternativas
+- Se está entre duas alternativas, provavelmente é outra alternativa
+- Se após um título vem texto normal, provavelmente é conteúdo/texto principal
+
+REGRA PRINCIPAL: TODO parágrafo DEVE receber uma marcação se corresponder a algum estilo.
+
+ESTILOS DISPONÍVEIS:
+"""
+        
+        for style in styles:
+            system_prompt += f"\n- {style['name']}: {style['prompt']}"
+            system_prompt += f"\n  Marcador: {style['marker']}\n"
+        
+        system_prompt += "\nRETORNE APENAS JSON. Use o contexto para marcar corretamente."
+        
+        user_prompt = "ATENÇÃO: Estes parágrafos não foram marcados. Vou mostrar com CONTEXTO:\n\n"
+        
+        for para in batch:
+            index = para['index']
+            text = para['text'].strip()[:200]
+            
+            # Busca contexto (parágrafo anterior e próximo)
+            prev_context = "INÍCIO DO DOCUMENTO"
+            next_context = "FIM DO DOCUMENTO"
+            
+            # Encontra parágrafos vizinhos
+            for p in full_content:
+                if p['index'] == index - 1:
+                    prev_text = p['text'][:100] if p['text'] else ""
+                    prev_markers = p.get('markers', [])
+                    prev_context = f"{prev_text} [Marcado como: {prev_markers[0] if prev_markers else 'SEM MARCAÇÃO'}]"
+                elif p['index'] == index + 1:
+                    next_text = p['text'][:100] if p['text'] else ""
+                    next_markers = p.get('markers', [])
+                    next_context = f"{next_text} [Marcado como: {next_markers[0] if next_markers else 'SEM MARCAÇÃO'}]"
+            
+            user_prompt += f"\n--- CONTEXTO DO PARÁGRAFO {index} ---\n"
+            user_prompt += f"ANTERIOR: {prev_context}\n"
+            user_prompt += f">>> ATUAL [NÃO MARCADO]: {text}\n"
+            user_prompt += f"PRÓXIMO: {next_context}\n"
+        
+        user_prompt += "\nCom base no CONTEXTO, marque cada parágrafo apropriadamente!"
+        
+        # Usa a mesma lógica de processamento
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        data = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "temperature": 0.1,  # Mais determinístico
+            "max_tokens": 3000
+        }
+        
+        try:
+            response = requests.post(
+                self.api_url, 
+                headers=headers, 
+                json=data,
+                timeout=45
+            )
+            
+            if response.status_code == 200:
+                result_data = response.json()
+                content = result_data['choices'][0]['message']['content']
+                
+                # Extrai JSON
+                json_start = content.find('{')
+                json_end = content.rfind('}') + 1
+                if json_start >= 0 and json_end > json_start:
+                    content = content[json_start:json_end]
+                
+                result = json.loads(content)
+                return self._merge_results(batch, result)
+        except Exception as e:
+            print(f"    Erro na segunda passada: {e}")
+        
+        return batch
+    
+    def _analyze_residue_patterns(self, unmarked_paragraphs: List[Dict]) -> Dict:
+        """Analisa padrões dos parágrafos não marcados para identificar se são resíduos"""
+        analysis = {
+            'empty': 0,
+            'very_short': 0,
+            'formatting': 0,
+            'real_content': 0,
+            'examples': []
+        }
+        
+        for para in unmarked_paragraphs:
+            text = para.get('text', '').strip()
+            
+            # Parágrafo vazio ou só espaços
+            if not text or text.isspace():
+                analysis['empty'] += 1
+            # Muito curto (menos de 10 caracteres)
+            elif len(text) < 10:
+                analysis['very_short'] += 1
+            # Possível resíduo de formatação (só pontuação, números isolados, etc)
+            elif all(c in '.-_=~*#@$%&()[]{}|\\/:;,<>!? \t\n0123456789' for c in text):
+                analysis['formatting'] += 1
+            # Parece conteúdo real
+            else:
+                analysis['real_content'] += 1
+                analysis['examples'].append({
+                    'index': para['index'],
+                    'text': text
+                })
+        
+        return analysis
+    
     def _build_system_prompt(self, styles: List[Dict], removal_prompts: List[Dict]) -> str:
         """Constrói o prompt do sistema com as definições de estilos"""
         prompt = """Você é um especialista em análise de documentos educacionais. 
-Sua tarefa é identificar e marcar estilos em textos de simulados educacionais.
+Sua tarefa é identificar e marcar estilos em TODOS os parágrafos do documento.
+
+REGRA FUNDAMENTAL: Você DEVE analisar e marcar TODOS os parágrafos listados.
+Não pule NENHUM parágrafo. Se um parágrafo corresponde a algum estilo, MARQUE-O.
 
 REGRAS IMPORTANTES:
-1. Cada linha/parágrafo deve ser analisado INDEPENDENTEMENTE
-2. Se um parágrafo contém TANTO uma questão QUANTO alternativas, você deve identificar APENAS como questão/enunciado
-3. Alternativas SEMPRE começam em uma nova linha/parágrafo
-4. Um parágrafo só pode ter UM tipo de marcação (a mais apropriada)
-5. Analise o INÍCIO de cada parágrafo para determinar seu tipo
-6. SEMPRE retorne um JSON válido e completo
-7. Para imagens, use o marcador apropriado se houver um estilo definido para imagens
+1. TODOS os parágrafos devem ser analisados e marcados quando apropriado
+2. Se um parágrafo contém questão E alternativas juntas, marque como questão/enunciado
+3. Alternativas SEMPRE começam com letras (A, B, C, D, E) seguidas de ) ou .
+4. Um parágrafo só pode ter UM tipo de marcação
+5. Se identificou um padrão, CONTINUE aplicando em TODOS os casos similares
+6. NÃO PULE parágrafos - se tem dúvida, marque com o estilo mais provável
 
-EXEMPLOS DE PADRÕES COMUNS (apenas para referência):
-- Questões frequentemente começam com números: "1.", "2)", "01.", "Questão 1"
-- Alternativas começam com letras: "a)", "A)", "(a)", "A."
-- Gabaritos podem conter: "Resposta:", "Gabarito:", "Alternativa correta:", letras isoladas com explicação
-- Títulos de simulado: "SIMULADO", "Simulado 1", "SIMULADO 1"
-- Elementos especiais: "[IMAGEM]", tabelas, gráficos
-
-IMPORTANTE: Use APENAS os estilos definidos abaixo. Não invente marcadores.
+EXEMPLOS OBRIGATÓRIOS:
+- Qualquer linha começando com A) B) C) D) E) → SEMPRE marque como alternativa
+- Qualquer linha com número seguido de . ou ) → SEMPRE marque como questão
+- Linhas com "Resposta:" ou "Gabarito:" → SEMPRE marque como gabarito
 
 ESTILOS A IDENTIFICAR:
 """
@@ -293,13 +453,14 @@ ESTILOS A IDENTIFICAR:
 FORMATO DE RESPOSTA OBRIGATÓRIO:
 Retorne APENAS um objeto JSON válido e COMPLETO, sem truncar.
 O JSON deve ter EXATAMENTE este formato:
-{"paragraphs": [{"index": 0, "markers": ["marcador1"]}, {"index": 1, "markers": []}, ...]}
+{"paragraphs": [{"index": 0, "markers": ["[[MARCADOR]]"]}, {"index": 1, "markers": []}, ...]}
 
 IMPORTANTE: 
+- SEMPRE use marcadores com colchetes DUPLOS: [[MARCADOR]]
+- NÃO use colchetes simples: [MARCADOR]
 - Garanta que o JSON esteja COMPLETO e válido
 - Cada parágrafo pode ter no MÁXIMO um marcador
 - Se não tiver certeza, deixe sem marcação: "markers": []
-- SEMPRE complete a resposta com JSON válido, mesmo que seja longo
 - Use marcadores EXATAMENTE como definidos acima (copie e cole)
 """
         
@@ -329,16 +490,31 @@ IMPORTANTE:
         results_map = {}
         for p in ai_results.get('paragraphs', []):
             if isinstance(p, dict) and 'index' in p and 'markers' in p:
-                # Filtra apenas marcadores válidos
+                # Filtra e corrige marcadores
                 markers = p.get('markers', [])
                 if all_valid_markers:
-                    # Valida e separa marcadores
                     validated_markers = []
                     for marker in markers:
-                        if marker in all_valid_markers:
+                        # Corrige marcadores sem colchetes duplos
+                        corrected_marker = marker
+                        if not marker.startswith('[[') and not marker.endswith(']]'):
+                            # Tenta adicionar colchetes
+                            corrected_marker = f'[[{marker}]]'
+                        
+                        # Verifica se o marcador corrigido é válido
+                        if corrected_marker in all_valid_markers:
+                            validated_markers.append(corrected_marker)
+                        elif marker in all_valid_markers:
                             validated_markers.append(marker)
                         else:
-                            print(f"    AVISO: Marcador inválido ignorado: {marker}")
+                            # Tenta sem colchetes também
+                            inner_marker = marker.strip('[]')
+                            test_marker = f'[[{inner_marker}]]'
+                            if test_marker in all_valid_markers:
+                                validated_markers.append(test_marker)
+                            else:
+                                print(f"    AVISO: Marcador inválido ignorado: {marker}")
+                    
                     markers = validated_markers
                 
                 results_map[p['index']] = markers

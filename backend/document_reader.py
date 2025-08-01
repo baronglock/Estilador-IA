@@ -23,19 +23,18 @@ class DocumentReader:
                     print(f"  Imagem inline detectada no parágrafo {i}")
                     break
             
-            # Sempre adiciona o parágrafo, marcando se tem imagem
-            if para.text.strip() or has_inline_image:
-                elements.append({
-                    'index': element_index,
-                    'type': 'paragraph',  # Sempre 'paragraph' agora
-                    'text': para.text,
-                    'original_para_index': i,
-                    'style': para.style.name if para.style else 'Normal',
-                    'runs': self._extract_runs(para),
-                    'has_image': has_inline_image,  # Flag que indica se tem imagem
-                    'markers': []
-                })
-                element_index += 1
+            # SEMPRE adiciona o parágrafo, mesmo se vazio
+            elements.append({
+                'index': element_index,
+                'type': 'paragraph',
+                'text': para.text,  # Pode ser vazio
+                'original_para_index': i,
+                'style': para.style.name if para.style else 'Normal',
+                'runs': self._extract_runs(para),
+                'has_image': has_inline_image,
+                'markers': []
+            })
+            element_index += 1
         
         # Processa tabelas
         for i, table in enumerate(self.document.tables):
