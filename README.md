@@ -1,4 +1,4 @@
-# Word AI Styler 📝✨
+# Word AI Styler 📝
 
 Um processador inteligente de documentos Word que utiliza IA (GPT-4.1) para identificar e aplicar estilos automaticamente em documentos educacionais, mantendo 100% do conteúdo original.
 
