@@ -423,10 +423,28 @@ Não pule NENHUM parágrafo. Se um parágrafo corresponde a algum estilo, MARQUE
 REGRAS IMPORTANTES:
 1. TODOS os parágrafos devem ser analisados e marcados quando apropriado
 2. Se um parágrafo contém questão E alternativas juntas, marque como questão/enunciado
-3. Alternativas SEMPRE começam com letras (A, B, C, D, E) seguidas de ) ou .
-4. Um parágrafo só pode ter UM tipo de marcação
-5. Se identificou um padrão, CONTINUE aplicando em TODOS os casos similares
-6. NÃO PULE parágrafos - se tem dúvida, marque com o estilo mais provável
+3. Um parágrafo só pode ter UM tipo de marcação
+4. Se identificou um padrão, CONTINUE aplicando em TODOS os casos similares
+5. NÃO PULE parágrafos - se tem dúvida, marque com o estilo mais provável
+
+ATENÇÃO ESPECIAL PARA LISTAS - MUITO IMPORTANTE:
+- [LISTA COM LETRA A/B/C/D/E]: São quase sempre ALTERNATIVAS! Marque com o estilo de alternativa apropriado
+- [LISTA COM BULLET/MARCADOR]: Analise o conteúdo - pode ser questão, gabarito, texto, etc
+- [LISTA NUMERADA]: Analise o conteúdo - pode ser questão, gabarito, texto, etc
+- [APENAS IMAGEM]: Use o marcador de imagem se existir
+
+REGRA CRÍTICA: Se você vê [LISTA COM LETRA] e o conteúdo parece uma resposta de múltipla escolha,
+É UMA ALTERNATIVA! Não importa se está em lista ou não, MARQUE COMO ALTERNATIVA!
+
+Exemplo concreto:
+- Parágrafo [LISTA COM LETRA A]: "São Paulo" → MARQUE COMO ALTERNATIVA
+- Parágrafo [LISTA COM LETRA B]: "Rio de Janeiro" → MARQUE COMO ALTERNATIVA
+- E assim por diante!
+
+USE OS ESTILOS ESPECÍFICOS quando existirem:
+- Se existe "Alternativa Lista" e é uma alternativa em lista → use "Alternativa Lista"
+- Se existe "Gabarito Bullet" e é um gabarito com bullet → use "Gabarito Bullet"
+- Se existe "Questão Bullet" e é uma questão com bullet → use "Questão Bullet"
 
 EXEMPLOS OBRIGATÓRIOS:
 - Qualquer linha começando com A) B) C) D) E) → SEMPRE marque como alternativa

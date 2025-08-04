@@ -2,6 +2,7 @@ from docx import Document
 from docx.shared import Pt, RGBColor
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 import os
+import re
 
 class DocumentReader:
     def __init__(self, file_path):
@@ -23,6 +24,50 @@ class DocumentReader:
                     print(f"  Imagem inline detectada no parágrafo {i}")
                     break
             
+            # Detecção detalhada de listas
+            is_list_item = False
+            list_type = None
+            list_char = None
+            
+            # Verifica se é um item de lista formatado pelo Word
+            if para._element.xpath('.//w:numPr'):
+                is_list_item = True
+                
+                # Tenta identificar o tipo baseado no texto
+                text_start = para.text.strip()[:10] if para.text else ""
+                
+                # Detecta tipo de marcador
+                if text_start:
+                    # Lista com letras (a), b), A), B)
+                    if re.match(r'^[a-zA-Z][\)\.]\s', text_start):
+                        list_type = 'letter'
+                        list_char = text_start[0]
+                    # Lista numerada 1. 2. 1) 2)
+                    elif re.match(r'^\d+[\)\.]\s', text_start):
+                        list_type = 'number'
+                    # Bullets (•, -, *, etc)
+                    else:
+                        list_type = 'bullet'
+                        # Tenta identificar o caractere do bullet
+                        if para._element.xpath('.//w:lvlText'):
+                            list_char = 'bullet'
+            
+            # Verifica também manualmente se parece uma lista (caso não esteja formatada)
+            elif para.text:
+                text_start = para.text.strip()
+                # Padrões manuais de lista
+                if re.match(r'^[a-eA-E][\)\.]\s', text_start):
+                    is_list_item = True
+                    list_type = 'letter'
+                    list_char = text_start[0].upper()
+                elif re.match(r'^\d+[\)\.]\s', text_start):
+                    is_list_item = True
+                    list_type = 'number'
+                elif text_start.startswith(('• ', '- ', '* ', '→ ', '▪ ')):
+                    is_list_item = True
+                    list_type = 'bullet'
+                    list_char = text_start[0]
+            
             # SEMPRE adiciona o parágrafo, mesmo se vazio
             elements.append({
                 'index': element_index,
@@ -32,6 +77,10 @@ class DocumentReader:
                 'style': para.style.name if para.style else 'Normal',
                 'runs': self._extract_runs(para),
                 'has_image': has_inline_image,
+                'is_image_paragraph': has_inline_image and not para.text.strip(),
+                'is_list_item': is_list_item,  # Se é item de lista
+                'list_type': list_type,  # Tipo: 'bullet', 'number', 'letter'
+                'list_char': list_char,  # Caractere usado (A, B, 1, 2, •, etc)
                 'markers': []
             })
             element_index += 1
