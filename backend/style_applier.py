@@ -23,8 +23,20 @@ class StyleApplier:
         # Carrega o documento original
         original_doc = Document(self.document_path)
         
-        # Cria um novo documento vazio (sem copiar template)
-        new_doc = Document()
+        # IMPORTANTE: Salva o documento original temporariamente para preservar relações
+        import tempfile
+        import shutil
+        
+        with tempfile.NamedTemporaryFile(suffix='.docx', delete=False) as tmp:
+            original_doc.save(tmp.name)
+            temp_path = tmp.name
+        
+        # Abre como novo documento (preserva todas as relações)
+        new_doc = Document(temp_path)
+        
+        # Remove o arquivo temporário
+        import os
+        os.unlink(temp_path)
         
         # Primeiro, cria TODOS os estilos definidos pelo usuário
         print("\nCriando estilos personalizados no documento:")
@@ -43,77 +55,33 @@ class StyleApplier:
         # Carrega o documento original para copiar imagens
         original_doc = Document(self.document_path)
         
-        # CORREÇÃO: Usa marked_content como base, não o documento original
-        print(f"\n  Aplicando estilos em {len(marked_content)} elementos...")
+        # NOVA ABORDAGEM: Modifica estilos no documento existente
+        print(f"\n  Aplicando estilos em {len(new_doc.paragraphs)} parágrafos...")
         
-        for i, para_data in enumerate(marked_content):
-            # Pega o índice original do parágrafo
-            original_index = para_data.get('original_para_index', -1)
+        # Aplica estilos diretamente nos parágrafos existentes
+        for i, para in enumerate(new_doc.paragraphs):
+            # Encontra o marked_content correspondente
+            marked_para = None
+            for m in marked_content:
+                if m.get('original_para_index') == i:
+                    marked_para = m
+                    break
             
-            # Verifica se o índice é válido
-            if original_index < 0 or original_index >= len(original_doc.paragraphs):
-                print(f"  ⚠️ Índice inválido para elemento {i}: {original_index}")
-                continue
-            
-            # Pega o parágrafo original
-            original_para = original_doc.paragraphs[original_index]
-            
-            # Cria novo parágrafo
-            new_para = new_doc.add_paragraph()
-            
-            # Aplica estilo se houver marcação
-            if para_data.get('markers') and len(para_data['markers']) > 0:
-                for marker in para_data['markers']:
+            # Se tem marcação, aplica estilo
+            if marked_para and marked_para.get('markers') and len(marked_para['markers']) > 0:
+                for marker in marked_para['markers']:
                     if marker in self.styles_map:
                         style_info = self.styles_map[marker]
                         try:
-                            new_para.style = new_doc.styles[style_info['wordStyle']]
+                            para.style = new_doc.styles[style_info['wordStyle']]
                             stats['styled'] += 1
                             stats['by_style'][style_info['name']] = stats['by_style'].get(style_info['name'], 0) + 1
                             
-                            if i < 30:  # Mostra os primeiros 30 para debug
-                                print(f"  ✓ Elemento {i} (P{original_index}): Estilo '{style_info['wordStyle']}' aplicado")
-                            
-                            break  # Aplica apenas o primeiro estilo válido
+                            if i < 30:
+                                print(f"  ✓ Parágrafo {i}: Estilo '{style_info['wordStyle']}' aplicado")
+                            break
                         except Exception as e:
-                            print(f"  ✗ ERRO ao aplicar estilo '{style_info['wordStyle']}' no elemento {i}: {e}")
-            else:
-                if i < 30 and para_data.get('text', '').strip():  # Mostra não estilizados não vazios
-                    print(f"  - Elemento {i} (P{original_index}): SEM ESTILO - {para_data.get('text', '')[:40]}...")
-            
-            # SEMPRE copia o conteúdo completo do parágrafo original
-            for run in original_para.runs:
-                new_run = new_para.add_run()
-                
-                # Copia texto
-                if run.text:
-                    new_run.text = run.text
-                
-                # Copia formatação básica apenas
-                try:
-                    if run.bold is not None:
-                        new_run.bold = run.bold
-                    if run.italic is not None:
-                        new_run.italic = run.italic
-                    if run.underline is not None:
-                        new_run.underline = run.underline
-                except:
-                    pass  # Ignora erros de formatação
-                
-                # Para imagens, tenta copiar de forma mais segura
-                try:
-                    if run._element.xpath('.//w:drawing'):
-                        # Copia apenas o texto alternativo da imagem por enquanto
-                        new_run.add_text("[IMAGEM]")
-                except:
-                    pass
-            
-            # Copia propriedades básicas do parágrafo
-            try:
-                if original_para.alignment:
-                    new_para.alignment = original_para.alignment
-            except:
-                pass  # Ignora erros de propriedades
+                            print(f"  ✗ ERRO ao aplicar estilo no parágrafo {i}: {e}")
         
         # Mostra estatísticas
         print(f"\n=== ESTATÍSTICAS DE APLICAÇÃO ===")
