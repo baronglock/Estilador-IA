@@ -109,7 +109,7 @@ class DocumentReader:
         
         print(f"\nTotal de elementos lidos: {len(elements)}")
         
-        # Conta tipos de elementos
+        # Conta tipos de elementods
         types_count = {}
         for elem in elements:
             elem_type = elem['type']
